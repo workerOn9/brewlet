@@ -141,3 +141,18 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# macOS
+.DS_Store
+
+# Agent harness local state
+.omo/
+AGENTS.md
+CLAUDE.md
+
+# Dev
+docs/
