@@ -13,6 +13,7 @@ import { useUiStore } from "../../lib/uiStore";
 import type {
   MirrorPreset,
   MirrorSettings,
+  MirrorTestResult,
   ProxySettings,
   Settings,
 } from "../../types";
@@ -153,6 +154,8 @@ export function SettingsPanel() {
   const [probe, setProbe] = useState<{ ok: boolean; text: string } | null>(null);
   const [probing, setProbing] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [testingMirror, setTestingMirror] = useState(false);
+  const [mirrorTest, setMirrorTest] = useState<MirrorTestResult | null>(null);
 
   // 打开时（或保存回写后）从后端真值重置草稿。
   useEffect(() => {
@@ -160,6 +163,7 @@ export function SettingsPanel() {
       setDraft(cloneSettings(settings.data));
       setProbe(null);
       setSaved(false);
+      setMirrorTest(null);
     }
   }, [open, settings.data]);
 
@@ -202,6 +206,27 @@ export function SettingsPanel() {
     draft.mirror.preset === "custom"
       ? draft.mirror.api_domain
       : PRESET_PREVIEW[draft.mirror.preset];
+
+  const onTestMirror = () => {
+    const base =
+      draft.mirror.preset === "custom"
+        ? draft.mirror.api_domain
+        : PRESET_PREVIEW[draft.mirror.preset];
+    setTestingMirror(true);
+    setMirrorTest(null);
+    void ipc
+      .testMirror(base, draft.proxy)
+      .then((r) => setMirrorTest(r))
+      .catch((e: unknown) =>
+        setMirrorTest({
+          ok: false,
+          latency_ms: null,
+          code: null,
+          message: errorMessage(e),
+        }),
+      )
+      .finally(() => setTestingMirror(false));
+  };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/30 p-10 backdrop-blur-[1px]">
@@ -291,32 +316,16 @@ export function SettingsPanel() {
               />
             }
           >
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="space-y-2.5">
               <TextField
-                label="HTTP_PROXY"
-                value={draft.proxy.http}
-                disabled={!draft.proxy.enabled}
+                label="代理地址（同时用于 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY）"
+                value={draft.proxy.http || draft.proxy.https || draft.proxy.all}
                 placeholder="http://127.0.0.1:7890"
-                onChange={(http) => patchProxy({ http })}
+                onChange={(v) => patchProxy({ http: v, https: v, all: v })}
               />
               <TextField
-                label="HTTPS_PROXY"
-                value={draft.proxy.https}
-                disabled={!draft.proxy.enabled}
-                placeholder="http://127.0.0.1:7890"
-                onChange={(https) => patchProxy({ https })}
-              />
-              <TextField
-                label="ALL_PROXY"
-                value={draft.proxy.all}
-                disabled={!draft.proxy.enabled}
-                placeholder="socks5://127.0.0.1:7891"
-                onChange={(all) => patchProxy({ all })}
-              />
-              <TextField
-                label="NO_PROXY"
+                label="NO_PROXY（不走代理的地址，逗号分隔）"
                 value={draft.proxy.no_proxy}
-                disabled={!draft.proxy.enabled}
                 placeholder="localhost,127.0.0.1"
                 onChange={(no_proxy) => patchProxy({ no_proxy })}
               />
@@ -398,18 +407,42 @@ export function SettingsPanel() {
           </Section>
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-neutral-200 px-5 py-3 dark:border-neutral-800">
+        <div className="flex shrink-0 items-center gap-3 border-t border-neutral-200 px-5 py-3 dark:border-neutral-800">
+          <button
+            type="button"
+            onClick={onTestMirror}
+            disabled={testingMirror || mirrorPreview.trim() === ""}
+            title="用当前代理设置测试镜像源连通性"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-100 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            {testingMirror ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Check className="size-3.5" />
+            )}
+            测试连通性
+          </button>
           <div className="min-w-0 flex-1">
-            {save.isError && (
+            {save.isError ? (
               <p className="break-all font-mono text-[11px] text-red-600 dark:text-red-400">
                 {errorMessage(save.error)}
               </p>
-            )}
-            {saved && !save.isError && (
+            ) : mirrorTest !== null ? (
+              <p
+                className={cx(
+                  "break-all font-mono text-[11px]",
+                  mirrorTest.ok
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400",
+                )}
+              >
+                {mirrorTest.message}
+              </p>
+            ) : saved ? (
               <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
                 已保存，目录会在下次刷新时走新配置。
               </p>
-            )}
+            ) : null}
           </div>
           <button
             type="button"

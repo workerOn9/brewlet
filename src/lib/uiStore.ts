@@ -55,7 +55,12 @@ export const useUiStore = create<UiStore>()(
           search,
           view: search.trim().length > 0 ? "catalog" : s.view,
         })),
-      setSelected: (selected) => set({ selected }),
+      setSelected: (selected) =>
+        set((s) => ({
+          selected,
+          // 选中包时自动展开右侧详情面板（即使此前被折叠/隐藏）——M4 UX。
+          detailCollapsed: selected !== null ? false : s.detailCollapsed,
+        })),
       setKindFilter: (kindFilter) => set({ kindFilter }),
       toggleStatusFilter: (f) =>
         set((s) => ({ statusFilter: s.statusFilter === f ? null : f })),

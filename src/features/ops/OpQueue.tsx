@@ -6,6 +6,7 @@
 import { useEffect, useRef } from "react";
 import {
   ArrowUpCircle,
+  CheckCheck,
   Download,
   Eraser,
   Loader2,
@@ -134,13 +135,42 @@ function OpCard({ op }: { op: OpState }) {
 export function OpQueue() {
   const order = useOpStore((s) => s.order);
   const ops = useOpStore((s) => s.ops);
+  const dismissFinished = useOpStore((s) => s.dismissFinished);
   if (order.length === 0) return null;
+
+  const hasFinished = order.some((id) => {
+    const op = ops[id];
+    return (
+      op !== undefined &&
+      (op.status === "done" ||
+        op.status === "error" ||
+        op.status === "canceled")
+    );
+  });
+
   return (
-    <div className="max-h-[45%] shrink-0 space-y-2 overflow-y-auto border-t border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/50">
-      {order.map((id) => {
-        const op = ops[id];
-        return op !== undefined ? <OpCard key={id} op={op} /> : null;
-      })}
+    <div className="shrink-0 border-t border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/50">
+      <div className="flex items-center justify-between px-3 pb-1 pt-2">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+          操作队列
+        </span>
+        {hasFinished && (
+          <button
+            type="button"
+            onClick={dismissFinished}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 transition-colors hover:bg-neutral-500/10 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+          >
+            <CheckCheck className="size-3" />
+            清除已完成
+          </button>
+        )}
+      </div>
+      <div className="max-h-[45%] space-y-2 overflow-y-auto px-3 pb-3">
+        {order.map((id) => {
+          const op = ops[id];
+          return op !== undefined ? <OpCard key={id} op={op} /> : null;
+        })}
+      </div>
     </div>
   );
 }

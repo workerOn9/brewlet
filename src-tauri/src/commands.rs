@@ -6,10 +6,10 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::api::catalog;
 use crate::brew::{read, write, write::OpManager};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::{
-    BrewStatus, CatalogPayload, InfoOutput, MaintenanceAction, OutdatedOutput, PackageKind,
-    Settings,
+    BrewStatus, CatalogPayload, InfoOutput, MaintenanceAction, MirrorTestResult, OutdatedOutput,
+    PackageKind, ProxySettings, Settings,
 };
 
 #[tauri::command]
@@ -170,4 +170,25 @@ pub async fn run_maintenance(
 #[tauri::command]
 pub async fn cancel_op(manager: State<'_, Arc<OpManager>>, op_id: String) -> AppResult<()> {
     write::cancel(&manager, &op_id).await
+}
+
+/// 用系统默认浏览器打开一个 http(s) 链接（macOS `open`，argv 传参，非 shell）。
+/// 前端详情面板 homepage 超链接点击时调用（Tauri target="_blank" 默认行为不生效）。
+#[tauri::command]
+pub async fn open_url(url: String) -> AppResult<()> {
+    let trimmed = url.trim();
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return Err(AppError::InvalidUrl(trimmed.to_string()));
+    }
+    std::process::Command::new("/usr/bin/open")
+        .arg(trimmed)
+        .spawn()
+        .map(|_| ())
+        .map_err(AppError::Io)
+}
+
+/// 综合连通性测试（代理 + 镜像源）：用给定（草稿）代理设置与镜像域名测试。
+#[tauri::command]
+pub async fn test_mirror(domain: String, proxy: ProxySettings) -> AppResult<MirrorTestResult> {
+    catalog::probe_mirror(&domain, &proxy).await
 }

@@ -95,6 +95,13 @@ export interface BrewStatus {
   path: string | null;
 }
 
+export interface MirrorTestResult {
+  ok: boolean;
+  latency_ms: number | null;
+  code: number | null;
+  message: string;
+}
+
 export type PackageKind = "formula" | "cask";
 
 // ---------------------------------------------------------------------------

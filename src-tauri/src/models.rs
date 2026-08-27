@@ -194,6 +194,22 @@ pub struct BrewStatus {
 }
 
 // ---------------------------------------------------------------------------
+// 镜像连通性测试
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MirrorTestResult {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub latency_ms: Option<u64>,
+    #[serde(default)]
+    pub code: Option<u16>,
+    #[serde(default)]
+    pub message: String,
+}
+
+// ---------------------------------------------------------------------------
 // 用户设置（D007 / D008），持久化到 app_config_dir/settings.json
 // ---------------------------------------------------------------------------
 

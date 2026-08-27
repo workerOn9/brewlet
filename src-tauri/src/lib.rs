@@ -30,6 +30,8 @@ pub fn run() {
             commands::upgrade_package,
             commands::run_maintenance,
             commands::cancel_op,
+            commands::open_url,
+            commands::test_mirror,
         ])
         .run(tauri::generate_context!());
 

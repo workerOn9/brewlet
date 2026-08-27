@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, AppResult};
-use crate::models::{Cask, CatalogPayload, Formula, Settings};
+use crate::models::{Cask, CatalogPayload, Formula, MirrorTestResult, ProxySettings, Settings};
 use crate::settings;
 
 const TTL_SECS: i64 = 3600;
@@ -62,8 +62,8 @@ fn write_cache(
     Ok(())
 }
 
-fn no_proxy(settings: &Settings) -> Option<reqwest::NoProxy> {
-    let raw = settings.proxy.no_proxy.trim();
+fn no_proxy(raw: &str) -> Option<reqwest::NoProxy> {
+    let raw = raw.trim();
     if raw.is_empty() {
         None
     } else {
@@ -71,27 +71,32 @@ fn no_proxy(settings: &Settings) -> Option<reqwest::NoProxy> {
     }
 }
 
-/// 目录抓取用的 HTTP 客户端：套用设置里的代理，并给足超时以便断网时降级到缓存。
-fn build_client(settings: &Settings) -> AppResult<reqwest::Client> {
+/// 按代理设置构建 HTTP 客户端（目录抓取与镜像连通性测试共用）。
+fn build_client_from_proxy(proxy: &ProxySettings) -> AppResult<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .user_agent(concat!("brewlet/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(90));
-    if settings.proxy.enabled {
-        if !settings.proxy.all.is_empty() {
-            builder = builder
-                .proxy(reqwest::Proxy::all(&settings.proxy.all)?.no_proxy(no_proxy(settings)));
+    if proxy.enabled {
+        if !proxy.all.is_empty() {
+            builder =
+                builder.proxy(reqwest::Proxy::all(&proxy.all)?.no_proxy(no_proxy(&proxy.no_proxy)));
         }
-        if !settings.proxy.http.is_empty() {
-            builder = builder
-                .proxy(reqwest::Proxy::http(&settings.proxy.http)?.no_proxy(no_proxy(settings)));
+        if !proxy.http.is_empty() {
+            builder =
+                builder.proxy(reqwest::Proxy::http(&proxy.http)?.no_proxy(no_proxy(&proxy.no_proxy)));
         }
-        if !settings.proxy.https.is_empty() {
+        if !proxy.https.is_empty() {
             builder = builder
-                .proxy(reqwest::Proxy::https(&settings.proxy.https)?.no_proxy(no_proxy(settings)));
+                .proxy(reqwest::Proxy::https(&proxy.https)?.no_proxy(no_proxy(&proxy.no_proxy)));
         }
     }
     Ok(builder.build()?)
+}
+
+/// 目录抓取用的 HTTP 客户端：套用设置里的代理，并给足超时以便断网时降级到缓存。
+fn build_client(settings: &Settings) -> AppResult<reqwest::Client> {
+    build_client_from_proxy(&settings.proxy)
 }
 
 async fn fetch_remote(settings: &Settings) -> AppResult<(Vec<Formula>, Vec<Cask>)> {
@@ -154,5 +159,36 @@ pub async fn get_catalog(app: &AppHandle, force_refresh: bool) -> AppResult<Cata
                 Err(AppError::CatalogUnavailable)
             }
         },
+    }
+}
+
+/// 综合连通性测试：用给定（草稿）代理设置 + 镜像域名，复用目录抓取相同 client（代理+超时），
+/// 只等响应头（≈TTFB），不下载整个目录。任意 HTTP 状态都视为「连通」，仅连接失败/超时判失败。
+pub async fn probe_mirror(domain: &str, proxy: &ProxySettings) -> AppResult<MirrorTestResult> {
+    let base = domain.trim().trim_end_matches('/');
+    if !(base.starts_with("http://") || base.starts_with("https://")) {
+        return Err(AppError::InvalidUrl(base.to_string()));
+    }
+    let client = build_client_from_proxy(proxy)?;
+    let url = format!("{base}/formula.json");
+    let start = std::time::Instant::now();
+    let result = client.get(&url).send().await;
+    let latency_ms = start.elapsed().as_millis() as u64;
+    match result {
+        Ok(resp) => {
+            let code = resp.status().as_u16();
+            Ok(MirrorTestResult {
+                ok: true,
+                latency_ms: Some(latency_ms),
+                code: Some(code),
+                message: format!("连通 · HTTP {code} · {latency_ms}ms"),
+            })
+        }
+        Err(e) => Ok(MirrorTestResult {
+            ok: false,
+            latency_ms: Some(latency_ms),
+            code: None,
+            message: format!("失败 · {latency_ms}ms · {e}"),
+        }),
     }
 }

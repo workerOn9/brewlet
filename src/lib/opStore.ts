@@ -46,6 +46,8 @@ interface OpStore {
   startMaintenance: (action: MaintenanceAction) => Promise<void>;
   cancel: (opId: string) => Promise<void>;
   dismiss: (opId: string) => void;
+  /** 批量移除所有已结束（done/error/canceled）的操作（M4 UX）。 */
+  dismissFinished: () => void;
   applyEvent: (ev: OpEvent) => void;
 }
 
@@ -126,6 +128,26 @@ export const useOpStore = create<OpStore>((set, get) => ({
       const ops = { ...s.ops };
       delete ops[opId];
       return { ops, order: s.order.filter((id) => id !== opId) };
+    }),
+
+  dismissFinished: () =>
+    set((s) => {
+      const finished = s.order.filter((id) => {
+        const op = s.ops[id];
+        return (
+          op !== undefined &&
+          (op.status === "done" ||
+            op.status === "error" ||
+            op.status === "canceled")
+        );
+      });
+      if (finished.length === 0) return s;
+      const ops = { ...s.ops };
+      for (const id of finished) delete ops[id];
+      return {
+        ops,
+        order: s.order.filter((id) => !finished.includes(id)),
+      };
     }),
 
   applyEvent: (ev) =>

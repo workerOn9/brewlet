@@ -7,8 +7,10 @@ import type {
   CatalogPayload,
   InfoOutput,
   MaintenanceAction,
+  MirrorTestResult,
   OutdatedOutput,
   PackageKind,
+  ProxySettings,
   Settings,
 } from "../types";
 
@@ -34,4 +36,9 @@ export const ipc = {
   runMaintenance: (opId: string, action: MaintenanceAction) =>
     invoke<void>("run_maintenance", { opId, action }),
   cancelOp: (opId: string) => invoke<void>("cancel_op", { opId }),
+  /** 用系统默认浏览器打开一个 http(s) 链接（后端校验 scheme）。 */
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
+  /** 综合连通性测试（代理 + 镜像源）：用草稿代理设置 + 镜像域名测试。 */
+  testMirror: (domain: string, proxy: ProxySettings) =>
+    invoke<MirrorTestResult>("test_mirror", { domain, proxy }),
 };

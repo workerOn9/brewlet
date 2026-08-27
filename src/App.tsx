@@ -2,7 +2,7 @@
  * 应用外壳（D010）：顶部统一工具栏 + 三栏（侧边栏 | 主列表 + 操作队列 | 详情），
  * 左右两栏可折叠。数据编排留在这里，视图保持表现层（DESIGN §7）。
  */
-import { useEffect, useMemo } from "react";
+import { lazy, Suspense, useEffect, useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import {
   useBrewStatus,
@@ -18,12 +18,16 @@ import { BrewMissing } from "./components/BrewMissing";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { CatalogView } from "./features/catalog/CatalogView";
-import { DepsView } from "./features/deps/DepsView";
 import { InstalledView } from "./features/installed/InstalledView";
 import { OutdatedView } from "./features/outdated/OutdatedView";
 import { PackageDetail } from "./features/package-detail/PackageDetail";
 import { OpQueue } from "./features/ops/OpQueue";
 import { SettingsPanel } from "./features/settings/SettingsPanel";
+
+// 依赖图（React Flow + dagre）是首屏最大的依赖，懒加载到进入「依赖」视图再取。
+const DepsView = lazy(() =>
+  import("./features/deps/DepsView").then((m) => ({ default: m.DepsView })),
+);
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -39,9 +43,11 @@ export default function App() {
   const selected = useUiStore((s) => s.selected);
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const detailCollapsed = useUiStore((s) => s.detailCollapsed);
+  const setSelected = useUiStore((s) => s.setSelected);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const toggleDetail = useUiStore((s) => s.toggleDetail);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
+  const settingsOpen = useUiStore((s) => s.settingsOpen);
 
   // 全局快捷键：⌘⌥S 左栏 · ⌘⌥I 右栏 · ⌘, 设置 · ⌘R 刷新目录。
   // 用 e.code 而非 e.key —— macOS 上按住 Option 会改变 e.key 的字符。
@@ -65,6 +71,25 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleSidebar, toggleDetail, setSettingsOpen, refreshCatalog]);
+
+  // Escape 语义（M4 UX，macOS 惯例）：优先关设置面板；输入框内交给输入框自己
+  // 处理（HMR 搜索框的 Escape 清空），否则取消当前选中的包（收起右侧详情）。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const target = e.target as HTMLElement | null;
+      const inInput =
+        target !== null &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA");
+      if (settingsOpen) {
+        setSettingsOpen(false);
+      } else if (!inInput && selected !== null) {
+        setSelected(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [settingsOpen, selected, setSettingsOpen, setSelected]);
 
   const rows = useMemo(
     () => buildPackages(catalog.data, installed.data, outdated.data),
@@ -130,31 +155,39 @@ export default function App() {
           collapsed={sidebarCollapsed}
         />
         <main className="flex min-w-0 flex-1 flex-col">
-          {view === "catalog" ? (
-            <CatalogView
-              rows={rows}
-              loading={catalog.isLoading}
-              error={catalog.isError ? errorMessage(catalog.error) : null}
-              fromCache={catalog.data?.from_cache ?? false}
-              onRetry={() => void catalog.refetch()}
-            />
-          ) : view === "installed" ? (
-            <InstalledView
-              rows={installedRows}
-              loading={installed.isLoading}
-              error={installed.isError ? errorMessage(installed.error) : null}
-              onRetry={() => void installed.refetch()}
-            />
-          ) : view === "outdated" ? (
-            <OutdatedView
-              rows={outdatedRows}
-              loading={outdated.isLoading}
-              error={outdated.isError ? errorMessage(outdated.error) : null}
-              onRetry={() => void outdated.refetch()}
-            />
-          ) : (
-            <DepsView rows={rows} />
-          )}
+          <Suspense
+            fallback={
+              <div className="flex min-h-0 flex-1 items-center justify-center">
+                <Loader2 className="size-6 animate-spin text-neutral-400" />
+              </div>
+            }
+          >
+            {view === "catalog" ? (
+              <CatalogView
+                rows={rows}
+                loading={catalog.isLoading}
+                error={catalog.isError ? errorMessage(catalog.error) : null}
+                fromCache={catalog.data?.from_cache ?? false}
+                onRetry={() => void catalog.refetch()}
+              />
+            ) : view === "installed" ? (
+              <InstalledView
+                rows={installedRows}
+                loading={installed.isLoading}
+                error={installed.isError ? errorMessage(installed.error) : null}
+                onRetry={() => void installed.refetch()}
+              />
+            ) : view === "outdated" ? (
+              <OutdatedView
+                rows={outdatedRows}
+                loading={outdated.isLoading}
+                error={outdated.isError ? errorMessage(outdated.error) : null}
+                onRetry={() => void outdated.refetch()}
+              />
+            ) : (
+              <DepsView rows={rows} />
+            )}
+          </Suspense>
           <OpQueue />
         </main>
         <PackageDetail row={selectedRow} collapsed={detailCollapsed} />

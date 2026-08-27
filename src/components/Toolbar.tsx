@@ -8,7 +8,6 @@
  */
 import { useEffect, useRef, useState } from "react";
 import {
-  ChevronDown,
   Eraser,
   PanelLeft,
   PanelRight,
@@ -107,16 +106,16 @@ function MaintenanceMenu() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-label="维护"
+        title="维护"
         className={cx(
-          "inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors",
+          "inline-flex size-7 shrink-0 items-center justify-center rounded-md transition-colors",
           open
             ? "bg-neutral-500/15 text-neutral-900 dark:text-neutral-100"
-            : "text-neutral-600 hover:bg-neutral-500/10 dark:text-neutral-300",
+            : "text-neutral-500 hover:bg-neutral-500/10 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200",
         )}
       >
-        <Wrench className="size-3.5" />
-        维护
-        <ChevronDown className="size-3" />
+        <Wrench className="size-4" />
       </button>
       {open && (
         <>
@@ -194,47 +193,71 @@ export function Toolbar() {
 
   return (
     <header className="flex h-11 shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-50/80 px-3 dark:border-neutral-800 dark:bg-neutral-900/60">
-      {/* 红绿灯占位，同时作为拖拽区 */}
-      <div className="h-full w-[68px] shrink-0" data-tauri-drag-region />
+      {/* 左侧折叠按钮（最左，app 标题「Brewlet」由 macOS 标题栏显示） */}
       <IconButton
         label="收起/展开侧边栏 (⌘⌥S)"
         icon={PanelLeft}
         active={!sidebarCollapsed}
         onClick={toggleSidebar}
       />
-      <div className="relative min-w-0 max-w-md flex-1">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-neutral-400" />
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="搜索并安装 formula / cask… (⌘K)"
-          spellCheck={false}
-          className="h-7 w-full rounded-lg border border-neutral-200 bg-white pl-8 pr-7 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500"
-        />
-        {value.length > 0 && (
+      {/* 中间：搜索框整行居中（两侧剩余空间兼作拖拽区）；刷新按钮内嵌于输入框右缘，成一体 */}
+      <div
+        className="flex min-w-0 flex-1 items-center justify-center px-2"
+        data-tauri-drag-region
+      >
+        <div className="relative w-full max-w-md">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-neutral-400" />
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              // Escape 清空搜索并失焦（M4 UX，浏览器惯例）。
+              if (e.key === "Escape" && value.length > 0) {
+                e.preventDefault();
+                setValue("");
+                searchInCatalog("");
+                inputRef.current?.blur();
+              }
+            }}
+            placeholder="搜索并安装 formula / cask…"
+            spellCheck={false}
+            className="h-7 w-full rounded-lg border border-neutral-200 bg-white pl-8 pr-16 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:focus:border-neutral-500"
+          />
+          {value.length === 0 && (
+            <kbd className="pointer-events-none absolute right-7 top-1/2 -translate-y-1/2 rounded border border-neutral-300 bg-neutral-100 px-1.5 font-mono text-[10px] leading-5 text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
+              ⌘K
+            </kbd>
+          )}
+          {value.length > 0 && (
+            <button
+              type="button"
+              aria-label="清空搜索"
+              onClick={() => {
+                setValue("");
+                searchInCatalog("");
+                inputRef.current?.focus();
+              }}
+              className="absolute right-7 top-1/2 -translate-y-1/2 rounded p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+          {/* 刷新按钮：并入搜索框内部最右侧，作为一个整体 */}
           <button
             type="button"
-            aria-label="清空搜索"
-            onClick={() => {
-              setValue("");
-              searchInCatalog("");
-              inputRef.current?.focus();
-            }}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+            aria-label="刷新目录 (⌘R)"
+            title="刷新目录 (⌘R)"
+            onClick={onRefresh}
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-500/10 hover:text-neutral-600 dark:hover:text-neutral-300"
           >
-            <X className="size-3.5" />
+            <RefreshCw
+              className={cx("size-3.5", refreshing && "animate-spin")}
+            />
           </button>
-        )}
+        </div>
       </div>
-      {/* 中间留白：拖拽区 */}
-      <div className="h-full min-w-4 flex-1" data-tauri-drag-region />
-      <IconButton
-        label="刷新目录 (⌘R)"
-        icon={RefreshCw}
-        onClick={onRefresh}
-        spinning={refreshing}
-      />
+      {/* 右侧图标区 */}
       <MaintenanceMenu />
       <IconButton
         label="设置 (⌘,)"

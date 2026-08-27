@@ -5,6 +5,7 @@
  * queued/running op.
  */
 import {
+  ArrowRight,
   ArrowUpCircle,
   Download,
   HardDrive,
@@ -15,8 +16,10 @@ import {
 } from "lucide-react";
 import { cx } from "../../lib/cx";
 import type { PackageRow } from "../../lib/packages";
+import { ipc } from "../../lib/ipc";
 import { useOpStore } from "../../lib/opStore";
 import type { PackageAction } from "../../lib/opStore";
+import { useUiStore } from "../../lib/uiStore";
 import { EmptyState } from "../../components/states";
 import { RowChips } from "../../components/StatusChips";
 
@@ -92,6 +95,10 @@ function ActionButton({
 }
 
 function DetailBody({ row }: { row: PackageRow }) {
+  const setView = useUiStore((s) => s.setView);
+  const setSelected = useUiStore((s) => s.setSelected);
+  // const 局部捕获，TS 才能在 onClick 闭包内保留 `!== null` 窄化（boxed prop 会丢失）。
+  const homepage = row.homepage;
   const busy = useOpStore((s) =>
     s.order.some((id) => {
       const op = s.ops[id];
@@ -161,13 +168,22 @@ function DetailBody({ row }: { row: PackageRow }) {
         )}
         <MetaRow label="Tap" value={row.tap} mono />
         <MetaRow label="License" value={row.license} mono />
-        {row.homepage !== null && (
-          <div className="flex items-start gap-2 py-1">
+        {homepage !== null && (
+          <a
+            href={homepage}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="用默认浏览器打开"
+            onClick={(e) => {
+              // 默认 target=_blank 在 Tauri v2 此环境不生效，改用 open_url 命令用系统浏览器打开。
+              e.preventDefault();
+              void ipc.openUrl(homepage);
+            }}
+            className="flex items-start gap-2 py-1 font-mono text-[11px] leading-relaxed text-neutral-500 underline-offset-2 transition-colors hover:text-neutral-700 hover:underline dark:text-neutral-400 dark:hover:text-neutral-200"
+          >
             <Link2 className="mt-0.5 size-3 shrink-0 text-neutral-400" />
-            <span className="break-all font-mono text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-              {row.homepage}
-            </span>
-          </div>
+            <span className="break-all">{homepage}</span>
+          </a>
         )}
       </div>
 
@@ -192,22 +208,35 @@ function DetailBody({ row }: { row: PackageRow }) {
 
       {row.dependencies.length > 0 && (
         <div className="px-4 py-3">
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-            <Network className="size-3.5" />
-            依赖（{row.dependencies.length}）
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+              <Network className="size-3.5" />
+              依赖（{row.dependencies.length}）
+            </h3>
+            <button
+              type="button"
+              onClick={() => setView("deps")}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-indigo-600 transition-colors hover:bg-indigo-500/10 dark:text-indigo-400"
+            >
+              查看依赖走向
+              <ArrowRight className="size-3" />
+            </button>
+          </div>
           <div className="mt-2 flex flex-wrap gap-1">
             {row.dependencies.map((dep) => (
-              <span
+              <button
                 key={dep}
-                className="rounded bg-neutral-500/10 px-1.5 py-0.5 font-mono text-[10px] text-neutral-600 dark:text-neutral-400"
+                type="button"
+                title="查看此依赖的详情"
+                onClick={() => setSelected({ name: dep, kind: "formula" })}
+                className="rounded bg-neutral-500/10 px-1.5 py-0.5 font-mono text-[10px] text-neutral-600 transition-colors hover:bg-neutral-500/20 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-500/20 dark:hover:text-neutral-100"
               >
                 {dep}
-              </span>
+              </button>
             ))}
           </div>
           <p className="mt-2 text-[10px] text-neutral-400 dark:text-neutral-500">
-            想看依赖走向？切到侧边栏的「依赖」视图。
+            点击某个依赖可查看它的详情；要看依赖走向，点右上角「查看依赖走向」。
           </p>
         </div>
       )}

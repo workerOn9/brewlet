@@ -42,15 +42,7 @@ export function Sidebar({
       )}
     >
       <div className="flex h-full w-[220px] flex-col">
-        <div className="px-4 pb-3 pt-4">
-          <h1 className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-            Brewlet
-          </h1>
-          <p className="mt-0.5 font-mono text-[10px] text-neutral-400 dark:text-neutral-500">
-            {brewVersion !== null ? `brew ${brewVersion}` : "Homebrew GUI"}
-          </p>
-        </div>
-        <nav className="flex-1 space-y-0.5 px-2">
+        <nav className="flex-1 space-y-0.5 px-2 pt-3">
           {NAV.map(({ view: v, label, icon: Icon }) => {
             const active = view === v;
             const count = counts[v];
@@ -84,8 +76,8 @@ export function Sidebar({
             );
           })}
         </nav>
-        <div className="px-4 py-3 text-[10px] leading-relaxed text-neutral-400 dark:text-neutral-600">
-          Homebrew 的可视化外壳
+        <div className="px-4 py-3 font-mono text-[10px] leading-relaxed text-neutral-400 dark:text-neutral-600">
+          {brewVersion !== null ? `brew ${brewVersion}` : "Homebrew GUI"}
         </div>
       </div>
     </aside>

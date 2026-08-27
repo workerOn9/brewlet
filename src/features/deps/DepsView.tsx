@@ -10,13 +10,15 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
+  ReactFlowProvider,
   useEdgesState,
   useNodesState,
+  useReactFlow,
 } from "@xyflow/react";
 import type { Edge, Node } from "@xyflow/react";
 import { Graph, layout } from "@dagrejs/dagre";
 import type { EdgeLabel, GraphLabel, NodeLabel } from "@dagrejs/dagre";
-import { Network, PackageSearch } from "lucide-react";
+import { ArrowLeft, Network, PackageSearch } from "lucide-react";
 import { cx } from "../../lib/cx";
 import type { DepDirection, DepGraph, DepNode } from "../../lib/depGraph";
 import {
@@ -145,38 +147,104 @@ function Legend() {
   );
 }
 
+/**
+ * 图渲染画布：受控 nodes/edges（内部 state）以便支持拖拽，并在图参数（深度 /
+ * 方向 / 根节点）变化后自动重新 fitView 居中（M4 UX）。
+ */
+function GraphCanvas({
+  flow,
+  onNodeClick,
+}: {
+  flow: { nodes: Node[]; edges: Edge[] };
+  onNodeClick: (name: string) => void;
+}) {
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(flow.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(flow.edges);
+  const { fitView } = useReactFlow();
+
+  useEffect(() => {
+    setNodes(flow.nodes);
+    setEdges(flow.edges);
+  }, [flow, setNodes, setEdges]);
+
+  // 图变化后等新节点布局渲染出来，再重新居中（React Flow 的 fitView 只在
+  // 首次挂载生效，切深度/方向/换根时需手动调用）。
+  useEffect(() => {
+    const id = requestAnimationFrame(() =>
+      void fitView({ padding: 0.2, duration: 300 }),
+    );
+    return () => cancelAnimationFrame(id);
+  }, [fitView, flow]);
+
+  return (
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onNodeClick={(_, node) => onNodeClick(node.id)}
+      fitView
+      colorMode="system"
+      proOptions={{ hideAttribution: false }}
+      minZoom={0.2}
+      nodesConnectable={false}
+      edgesFocusable={false}
+    >
+      <Background gap={18} size={1} />
+      <Controls showInteractive={false} />
+      <MiniMap pannable zoomable />
+    </ReactFlow>
+  );
+}
+
 export function DepsView({ rows }: { rows: PackageRow[] }) {
   const selected = useUiStore((s) => s.selected);
-  const setSelected = useUiStore((s) => s.setSelected);
-  const [depth, setDepth] = useState(2);
+  // 图内探索的根节点（独立于全局 selected，点节点只在此深入，不弹详情面板）与返回栈。
+  // 用 select 的公式懒初始化，避免进入视图时第一帧闪「没有依赖关系」。
+  const [root, setRoot] = useState<string | null>(() =>
+    selected !== null && selected.kind === "formula" ? selected.name : null,
+  );
+  const [stack, setStack] = useState<string[]>([]);
+  // 深度默认 1（M4 UX）：默认只看直接依赖，需要再手动加深。
+  const [depth, setDepth] = useState(1);
   const [direction, setDirection] = useState<DepDirection>("both");
 
   const formulae = useMemo(() => indexFormulae(rows), [rows]);
   const dependents = useMemo(() => indexDependents(rows), [rows]);
 
-  const rootName =
-    selected !== null && selected.kind === "formula" ? selected.name : null;
+  // 进入依赖视图 / 外部改选列表时：用选中的 formula 重置探索起点。
+  useEffect(() => {
+    setRoot(selected !== null && selected.kind === "formula" ? selected.name : null);
+    setStack([]);
+  }, [selected]);
+
+  // 点击图节点：把当前根压栈，以此为新的根深入探索。
+  const explore = (name: string) => {
+    if (name === root) return;
+    setStack((s) => (root !== null ? [...s, root] : s));
+    setRoot(name);
+  };
+
+  // 返回上一级根节点。
+  const goBack = () => {
+    if (stack.length === 0) return;
+    const prev = stack[stack.length - 1];
+    setRoot(prev);
+    setStack((s) => s.slice(0, -1));
+  };
 
   const graph = useMemo(
     () =>
-      rootName === null
+      root === null
         ? null
-        : buildDepGraph(rootName, formulae, dependents, depth, direction),
-    [rootName, formulae, dependents, depth, direction],
+        : buildDepGraph(root, formulae, dependents, depth, direction),
+    [root, formulae, dependents, depth, direction],
   );
 
   const flow = useMemo(
     () => (graph === null ? { nodes: [], edges: [] } : layoutGraph(graph)),
     [graph],
   );
-
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(flow.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(flow.edges);
-
-  useEffect(() => {
-    setNodes(flow.nodes);
-    setEdges(flow.edges);
-  }, [flow, setNodes, setEdges]);
 
   if (selected === null) {
     return (
@@ -200,7 +268,7 @@ export function DepsView({ rows }: { rows: PackageRow[] }) {
     return (
       <EmptyState
         icon={Network}
-        title={`${selected.name} 没有可画的依赖关系`}
+        title={`${root ?? selected.name} 没有可画的依赖关系`}
         hint="它既不依赖其它 formula，也没有其它已知 formula 依赖它。"
       />
     );
@@ -209,8 +277,22 @@ export function DepsView({ rows }: { rows: PackageRow[] }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+        <button
+          type="button"
+          onClick={goBack}
+          disabled={stack.length === 0}
+          aria-label="返回上一级"
+          className={cx(
+            "inline-flex size-6 shrink-0 items-center justify-center rounded-md transition-colors",
+            stack.length > 0
+              ? "text-neutral-600 hover:bg-neutral-500/10 dark:text-neutral-300"
+              : "cursor-default text-neutral-300 dark:text-neutral-700",
+          )}
+        >
+          <ArrowLeft className="size-4" />
+        </button>
         <span className="font-mono text-xs text-neutral-900 dark:text-neutral-100">
-          {selected.name}
+          {root ?? selected.name}
         </span>
         <span className="font-mono text-[10px] text-neutral-400 dark:text-neutral-500">
           直接依赖 {graph.directDependencies} · 被依赖 {graph.directDependents} ·
@@ -265,25 +347,9 @@ export function DepsView({ rows }: { rows: PackageRow[] }) {
       )}
 
       <div className="min-h-0 flex-1">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={(_, node) =>
-            setSelected({ name: node.id, kind: "formula" })
-          }
-          fitView
-          colorMode="system"
-          proOptions={{ hideAttribution: false }}
-          minZoom={0.2}
-          nodesConnectable={false}
-          edgesFocusable={false}
-        >
-          <Background gap={18} size={1} />
-          <Controls showInteractive={false} />
-          <MiniMap pannable zoomable />
-        </ReactFlow>
+        <ReactFlowProvider>
+          <GraphCanvas flow={flow} onNodeClick={explore} />
+        </ReactFlowProvider>
       </div>
     </div>
   );

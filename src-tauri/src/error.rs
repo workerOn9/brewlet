@@ -12,6 +12,8 @@ pub enum AppError {
     InvalidSetting { field: String, reason: String },
     #[error("invalid package name: {0}")]
     InvalidName(String),
+    #[error("invalid url: {0}")]
+    InvalidUrl(String),
     #[error("brew command failed: {0}")]
     BrewFailed(String),
     #[error("operation not found: {0}")]
