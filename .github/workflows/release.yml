@@ -1,0 +1,47 @@
+name: Release
+
+# 推送 v* tag（如 v0.1.0）时自动在 macOS 上构建并发布 DMG 到 GitHub Release。
+# 手动触发可从 Actions 面板运行（会用当前 branch 名作 tag 名，建议用 tag 触发）。
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest  # Apple Silicon (arm64)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        run: bun install
+
+      # tauri-action 会跑 tauri.conf.json 里的 beforeBuildCommand（bun run build），
+      # 然后按 bundle.targets = ["app", "dmg"] 打包，并把产物上传到 release。
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Brewlet ${{ github.ref_name }}"
+          releaseBody: "自动构建的 macOS DMG（未签名，首次打开需右键→打开）。"
+          releaseDraft: true
+          prerelease: false

@@ -1,0 +1,33 @@
+{
+  "name": "brewlet",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
+    "@tanstack/react-query": "^5",
+    "@tanstack/react-virtual": "^3",
+    "@tauri-apps/api": "^2",
+    "@xyflow/react": "^12.11.5",
+    "lucide-react": "^0.545.0",
+    "react": "^19",
+    "react-dom": "^19",
+    "zustand": "^5"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@tailwindcss/vite": "^4",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5",
+    "tailwindcss": "^4",
+    "typescript": "~5.9",
+    "vite": "^7"
+  }
+}
