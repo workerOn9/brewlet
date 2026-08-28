@@ -149,8 +149,8 @@ export function OpQueue() {
   });
 
   return (
-    <div className="shrink-0 border-t border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/50">
-      <div className="flex items-center justify-between px-3 pb-1 pt-2">
+    <div className="flex max-h-[45%] shrink-0 flex-col border-t border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/50">
+      <div className="flex shrink-0 items-center justify-between px-3 pb-1 pt-2">
         <span className="text-[10px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
           操作队列
         </span>
@@ -165,7 +165,7 @@ export function OpQueue() {
           </button>
         )}
       </div>
-      <div className="max-h-[45%] space-y-2 overflow-y-auto px-3 pb-3">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-3">
         {order.map((id) => {
           const op = ops[id];
           return op !== undefined ? <OpCard key={id} op={op} /> : null;

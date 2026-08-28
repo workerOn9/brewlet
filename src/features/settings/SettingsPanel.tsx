@@ -404,6 +404,13 @@ export function SettingsPanel() {
                 另外三个 HOMEBREW_* 变量会在保存时按预设自动填好。
               </p>
             )}
+            {draft.mirror.enabled && customMirror === false && (
+              <p className="rounded-md bg-amber-500/10 p-2 text-[11px] leading-relaxed text-amber-800 dark:text-amber-300">
+                镜像只加速 formula 二进制安装包与目录元数据。cask（如 claude、google-chrome）
+                的安装包由厂商直连下载，域名写死在 cask 定义里，镜像无法接管——大陆访问这类
+                cask 明显卡顿或超时时，可改用上方「网络代理」进行加速。
+              </p>
+            )}
           </Section>
         </div>
 
