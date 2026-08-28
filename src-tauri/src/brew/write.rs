@@ -14,15 +14,16 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, Notify, Semaphore};
 
 use crate::brew::{brew_envs, brew_path, validate_package_name};
 use crate::error::{AppError, AppResult};
 use crate::models::{MaintenanceAction, OpEvent, OpEventKind, PackageKind};
 
 struct OpEntry {
-    child: Arc<Mutex<Child>>,
+    child: Arc<Mutex<Option<Child>>>,
     canceled: Arc<AtomicBool>,
+    cancel_notify: Arc<Notify>,
 }
 
 pub struct OpManager {
@@ -158,11 +159,37 @@ pub(crate) async fn run_brew_op(
         line: None,
         code: None,
     });
-    let _permit = manager
-        .gate
-        .acquire()
-        .await
-        .map_err(|_| AppError::BrewFailed("operation gate closed".to_string()))?;
+    // Register the op BEFORE acquiring the gate so a cancel during the queue
+    // wait can find it (queued ops stay cancellable, DESIGN §5.2).
+    let canceled = Arc::new(AtomicBool::new(false));
+    let cancel_notify = Arc::new(Notify::new());
+    let child_handle = Arc::new(Mutex::new(None));
+    manager.ops.lock().await.insert(
+        op_id.clone(),
+        OpEntry {
+            child: Arc::clone(&child_handle),
+            canceled: Arc::clone(&canceled),
+            cancel_notify: Arc::clone(&cancel_notify),
+        },
+    );
+
+    // Wait for the serial gate, but yield to cancellation while queued.
+    let permit = manager.gate.acquire();
+    tokio::pin!(permit);
+    let canceled_fut = cancel_notify.notified();
+    tokio::pin!(canceled_fut);
+    let _permit = tokio::select! {
+        p = &mut permit => Some(
+            p.map_err(|_| AppError::BrewFailed("operation gate closed".to_string()))?,
+        ),
+        _ = &mut canceled_fut => None,
+    };
+    let Some(_permit) = _permit else {
+        // Canceled while queued — never spawned.
+        manager.ops.lock().await.remove(&op_id);
+        lifecycle(&sink, &op_id, OpEventKind::Canceled, None);
+        return Ok(());
+    };
 
     let child = Command::new(&brew)
         .args(&args)
@@ -172,68 +199,97 @@ pub(crate) async fn run_brew_op(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+    *child_handle.lock().await = Some(child);
 
-    let canceled = Arc::new(AtomicBool::new(false));
-    let child_handle = Arc::new(Mutex::new(child));
-    manager.ops.lock().await.insert(
-        op_id.clone(),
-        OpEntry {
-            child: Arc::clone(&child_handle),
-            canceled: Arc::clone(&canceled),
-        },
-    );
+    // A cancel may land between passing the gate and registering the spawned
+    // child; if so kill it immediately so the lifecycle check below emits Canceled.
+    if canceled.load(Ordering::SeqCst) {
+        let mut guard = child_handle.lock().await;
+        if let Some(child) = guard.as_mut() {
+            let _ = child.start_kill();
+        }
+        drop(guard);
+    }
 
     let (stdout, stderr) = {
         let mut guard = child_handle.lock().await;
-        (guard.stdout.take(), guard.stderr.take())
+        let child = guard
+            .as_mut()
+            .ok_or_else(|| AppError::BrewFailed("child not spawned".to_string()))?;
+        (child.stdout.take(), child.stderr.take())
     };
     spawn_line_reader(&sink, &op_id, stdout);
     spawn_line_reader(&sink, &op_id, stderr);
 
-    let status = {
-        let mut guard = child_handle.lock().await;
-        guard.wait().await
-    };
+    let status = await_child(&child_handle, &canceled).await?;
 
     manager.ops.lock().await.remove(&op_id);
 
-    match status {
-        Ok(s) if canceled.load(Ordering::SeqCst) => {
-            lifecycle(&sink, &op_id, OpEventKind::Canceled, s.code());
-        }
-        Ok(s) if s.success() => {
-            lifecycle(&sink, &op_id, OpEventKind::Done, s.code());
-        }
-        Ok(s) => {
-            lifecycle(&sink, &op_id, OpEventKind::Error, s.code());
-        }
-        Err(e) => {
-            sink(OpEvent {
-                op_id: op_id.clone(),
-                kind: OpEventKind::Error,
-                phase: None,
-                line: Some(e.to_string()),
-                code: None,
-            });
-        }
+    // `status` is a plain ExitStatus (await_child already surfaced I/O errors).
+    if canceled.load(Ordering::SeqCst) {
+        lifecycle(&sink, &op_id, OpEventKind::Canceled, status.code());
+    } else if status.success() {
+        lifecycle(&sink, &op_id, OpEventKind::Done, status.code());
+    } else {
+        lifecycle(&sink, &op_id, OpEventKind::Error, status.code());
     }
     Ok(())
 }
 
-/// Cancel a running op by killing its child process.
+/// Reap a spawned child to completion. Crucially this does NOT hold the mutex
+/// across a blocking `wait()` — if it did, `cancel()` couldn't acquire the lock
+/// to `start_kill()` a running process, deadlocking running-op cancellation.
+/// Here each lock is held only briefly around the non-blocking `try_wait()`.
+async fn await_child(
+    child_handle: &Mutex<Option<Child>>,
+    canceled: &AtomicBool,
+) -> AppResult<std::process::ExitStatus> {
+    loop {
+        let exited = {
+            let mut guard = child_handle.lock().await;
+            match guard.as_mut() {
+                Some(child) => child.try_wait().map_err(AppError::Io)?,
+                None => None,
+            }
+        };
+        if let Some(status) = exited {
+            return Ok(status);
+        }
+        // cancel() sets the flag and (for a running op) start_kills the child
+        // directly; re-check here in case it landed between spawn and this loop.
+        if canceled.load(Ordering::SeqCst) {
+            let mut guard = child_handle.lock().await;
+            if let Some(child) = guard.as_mut() {
+                let _ = child.start_kill();
+            }
+            drop(guard);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+/// Cancel a running op by killing its child process, or a queued op by
+/// notifying its gate-wait so it aborts before ever spawning.
 pub async fn cancel(manager: &OpManager, op_id: &str) -> AppResult<()> {
     let entry = {
         let ops = manager.ops.lock().await;
         ops.get(op_id).map(|e| OpEntry {
             child: Arc::clone(&e.child),
             canceled: Arc::clone(&e.canceled),
+            cancel_notify: Arc::clone(&e.cancel_notify),
         })
     };
     match entry {
         Some(e) => {
             e.canceled.store(true, Ordering::SeqCst);
+            e.cancel_notify.notify_one();
+            // 已 spawn（运行中）：杀掉子进程。仍在排队：child 为 None，仅靠上边
+            // 的 notify 唤醒 gate-wait，无需也不可能有子进程可杀。
             let mut guard = e.child.lock().await;
-            guard.start_kill().map_err(AppError::Io)
+            match guard.as_mut() {
+                Some(child) => child.start_kill().map_err(AppError::Io),
+                None => Ok(()),
+            }
         }
         None => Err(AppError::OpNotFound(op_id.to_string())),
     }
@@ -295,23 +351,98 @@ mod tests {
             .arg("30")
             .spawn()
             .expect("spawn sleep");
-        let child = Arc::new(Mutex::new(child));
+        let child = Arc::new(Mutex::new(Some(child)));
         let canceled = Arc::new(AtomicBool::new(false));
         manager.ops.lock().await.insert(
             "op-test".to_string(),
             OpEntry {
                 child: Arc::clone(&child),
                 canceled: Arc::clone(&canceled),
+                cancel_notify: Arc::new(Notify::new()),
             },
         );
 
         cancel(&manager, "op-test").await.expect("cancel ok");
         assert!(canceled.load(Ordering::SeqCst));
 
-        let status = child.lock().await.wait().await.expect("wait ok");
+        let status = {
+            let mut guard = child.lock().await;
+            guard
+                .as_mut()
+                .expect("child spawned")
+                .wait()
+                .await
+                .expect("wait ok")
+        };
         assert!(!status.success());
 
         assert!(cancel(&manager, "nope").await.is_err());
+    }
+
+    /// 排队中（还没拿到 gate、child 为 None）取消：应设置 canceled 并唤醒
+    /// gate-wait，而不是报 OpNotFound。
+    #[tokio::test]
+    async fn cancel_notifies_queued_op() {
+        let manager = OpManager::new();
+        let canceled = Arc::new(AtomicBool::new(false));
+        let notify = Arc::new(Notify::new());
+        manager.ops.lock().await.insert(
+            "op-queued".to_string(),
+            OpEntry {
+                child: Arc::new(Mutex::new(None)),
+                canceled: Arc::clone(&canceled),
+                cancel_notify: Arc::clone(&notify),
+            },
+        );
+
+        cancel(&manager, "op-queued").await.expect("cancel ok");
+        assert!(canceled.load(Ordering::SeqCst));
+        // notify_one 已投递：一个 notified() future 应能立即 resolve。
+        let waiter = notify.notified();
+        tokio::time::timeout(Duration::from_millis(200), waiter)
+            .await
+            .expect("notified should resolve");
+    }
+
+    /// Regression: a RUNNING op (child already spawned) must be cancellable
+    /// while await_child is polling. The old code held the child mutex across
+    /// `wait()`, so cancel() deadlocked on the same lock — this test would hang.
+    #[tokio::test]
+    async fn cancel_running_op_while_await_child() {
+        let child = Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        let child_handle = Arc::new(Mutex::new(Some(child)));
+        let canceled = Arc::new(AtomicBool::new(false));
+
+        // Start the reaper in a background task, then cancel while it polls.
+        let handle = child_handle.clone();
+        let flag = canceled.clone();
+        let reaper = tokio::spawn(async move { await_child(&handle, &flag).await });
+
+        // Give the reaper a moment to enter its polling loop.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Simulate cancel(): set the flag + kill the running child.
+        canceled.store(true, Ordering::SeqCst);
+        {
+            let mut guard = child_handle.lock().await;
+            guard
+                .as_mut()
+                .expect("child spawned")
+                .start_kill()
+                .expect("kill ok");
+        }
+
+        // Must resolve quickly (no deadlock), and report a non-success status.
+        let status = tokio::time::timeout(Duration::from_secs(3), reaper)
+            .await
+            .expect("await_child deadlocked while cancelling a running op")
+            .expect("reaper panicked")
+            .expect("reaper errored");
+        assert!(!status.success());
+        assert!(canceled.load(Ordering::SeqCst));
     }
 
     /// End-to-end through the spawn/stream/lifecycle core using a read-only

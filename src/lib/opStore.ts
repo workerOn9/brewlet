@@ -120,7 +120,9 @@ export const useOpStore = create<OpStore>((set, get) => ({
   },
 
   cancel: async (opId) => {
-    await ipc.cancelOp(opId);
+    // 后端对排队中的 op 也能取消；若 op 已结束并从 map 移除会报 OpNotFound，
+    // 此时前端静默忽略（卡片已经结束，无需再操作）。
+    await ipc.cancelOp(opId).catch(() => {});
   },
 
   dismiss: (opId) =>
