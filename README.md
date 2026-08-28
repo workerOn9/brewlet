@@ -15,11 +15,24 @@ Brewlet 是 macOS 上一款免费开源的 Homebrew 图形化管理工具，基�
 - **镜像连通性测试**：综合代理 + 镜像源，一键测试连通
 - **体验细节**：三栏可折叠、macOS 原生标题栏、深色模式、Escape 快捷语义、操作队列
 
+## 界面预览
+
+| 主界面 · 已安装 | 依赖图 | 设置 |
+|---|---|---|
+| ![已安装列表](screenshots/installed.png) | ![依赖图](screenshots/dependency-graph.png) | ![设置](screenshots/settings.png) |
+
 ## 安装
 
 从 [Releases](https://github.com/workerOn9/brewlet/releases) 下载最新的 `.dmg` 安装包。
 
 > 当前产物未签名，首次打开请 **右键应用 → 打开** 确认，或到「系统设置 → 隐私与安全性 → 仍要打开」。
+> 若仍提示「已损坏 / 无法打开」，可在本机清除隔离属性并重新签名（ad-hoc）后再打开：
+>
+> ```bash
+> xattr -cr /Applications/Brewlet.app
+> codesign --force --deep --sign - /Applications/Brewlet.app
+> ```
+>
 > 目前产物为 **Apple Silicon (aarch64)**。
 
 ## 从源码构建
