@@ -18,6 +18,8 @@ export type OpStatus = "queued" | "running" | "done" | "error" | "canceled";
 export const MAINTENANCE_LABEL: Record<MaintenanceAction, string> = {
   update: "brew update",
   upgrade_all: "brew upgrade",
+  upgrade_formulae: "brew upgrade --formula",
+  upgrade_casks: "brew upgrade --cask",
   cleanup: "brew cleanup",
   autoremove: "brew autoremove",
 };
@@ -35,6 +37,24 @@ export interface OpState {
 
 const MAX_LINES = 500;
 
+/** 新建一个排队中的 op（真正的 brew 调用由各 action 发起）。 */
+function newOp(
+  action: OpAction,
+  name: string,
+  kind: PackageKind | null,
+): OpState {
+  return {
+    id: crypto.randomUUID(),
+    action,
+    name,
+    kind,
+    status: "queued",
+    phase: null,
+    lines: [],
+    code: null,
+  };
+}
+
 interface OpStore {
   ops: Record<string, OpState>;
   order: string[];
@@ -44,6 +64,8 @@ interface OpStore {
     kind: PackageKind,
   ) => Promise<void>;
   startMaintenance: (action: MaintenanceAction) => Promise<void>;
+  /** 多选升级：同一 kind 的一组包合成一条 `brew upgrade [--cask] a b c`。 */
+  startUpgradeMany: (names: string[], kind: PackageKind) => Promise<void>;
   cancel: (opId: string) => Promise<void>;
   dismiss: (opId: string) => void;
   /** 批量移除所有已结束（done/error/canceled）的操作（M4 UX）。 */
@@ -56,22 +78,10 @@ export const useOpStore = create<OpStore>((set, get) => ({
   order: [],
 
   startOp: async (action, name, kind) => {
-    const opId = crypto.randomUUID();
+    const op = newOp(action, name, kind);
     set((s) => ({
-      ops: {
-        ...s.ops,
-        [opId]: {
-          id: opId,
-          action,
-          name,
-          kind,
-          status: "queued",
-          phase: null,
-          lines: [],
-          code: null,
-        },
-      },
-      order: [opId, ...s.order],
+      ops: { ...s.ops, [op.id]: op },
+      order: [op.id, ...s.order],
     }));
     const fn =
       action === "install"
@@ -80,10 +90,10 @@ export const useOpStore = create<OpStore>((set, get) => ({
           ? ipc.uninstallPackage
           : ipc.upgradePackage;
     try {
-      await fn(opId, name, kind);
+      await fn(op.id, name, kind);
     } catch (e) {
       get().applyEvent({
-        op_id: opId,
+        op_id: op.id,
         kind: "error",
         line: String(e),
       });
@@ -91,28 +101,33 @@ export const useOpStore = create<OpStore>((set, get) => ({
   },
 
   startMaintenance: async (action) => {
-    const opId = crypto.randomUUID();
+    const op = newOp(action, MAINTENANCE_LABEL[action], null);
     set((s) => ({
-      ops: {
-        ...s.ops,
-        [opId]: {
-          id: opId,
-          action,
-          name: MAINTENANCE_LABEL[action],
-          kind: null,
-          status: "queued",
-          phase: null,
-          lines: [],
-          code: null,
-        },
-      },
-      order: [opId, ...s.order],
+      ops: { ...s.ops, [op.id]: op },
+      order: [op.id, ...s.order],
     }));
     try {
-      await ipc.runMaintenance(opId, action);
+      await ipc.runMaintenance(op.id, action);
     } catch (e) {
       get().applyEvent({
-        op_id: opId,
+        op_id: op.id,
+        kind: "error",
+        line: String(e),
+      });
+    }
+  },
+
+  startUpgradeMany: async (names, kind) => {
+    const op = newOp("upgrade", names.join(" "), kind);
+    set((s) => ({
+      ops: { ...s.ops, [op.id]: op },
+      order: [op.id, ...s.order],
+    }));
+    try {
+      await ipc.upgradePackages(op.id, names, kind);
+    } catch (e) {
+      get().applyEvent({
+        op_id: op.id,
         kind: "error",
         line: String(e),
       });

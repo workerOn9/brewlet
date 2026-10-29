@@ -33,6 +33,9 @@ export const ipc = {
     invoke<void>("uninstall_package", { opId, name, kind }),
   upgradePackage: (opId: string, name: string, kind: PackageKind) =>
     invoke<void>("upgrade_package", { opId, name, kind }),
+  /** 多选升级：一次 op 升级同一 kind 的一组包。 */
+  upgradePackages: (opId: string, names: string[], kind: PackageKind) =>
+    invoke<void>("upgrade_packages", { opId, names, kind }),
   runMaintenance: (opId: string, action: MaintenanceAction) =>
     invoke<void>("run_maintenance", { opId, action }),
   cancelOp: (opId: string) => invoke<void>("cancel_op", { opId }),

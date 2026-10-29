@@ -28,6 +28,7 @@ pub fn run() {
             commands::install_package,
             commands::uninstall_package,
             commands::upgrade_package,
+            commands::upgrade_packages,
             commands::run_maintenance,
             commands::cancel_op,
             commands::open_url,

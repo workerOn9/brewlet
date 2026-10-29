@@ -156,6 +156,19 @@ pub async fn upgrade_package(
     )
 }
 
+/// 多选升级：一次 op 升级同一 kind 的一组包（`brew upgrade a b c` /
+/// `brew upgrade --cask a b c`）。混合选择由前端按 kind 拆成多个 op。
+#[tauri::command]
+pub async fn upgrade_packages(
+    app: AppHandle,
+    manager: State<'_, Arc<OpManager>>,
+    op_id: String,
+    names: Vec<String>,
+    kind: PackageKind,
+) -> AppResult<()> {
+    spawn_args(app, manager, op_id, write::upgrade_many_args(&names, kind)?)
+}
+
 /// 不带包名的维护操作：brew update / upgrade / cleanup / autoremove（白名单枚举）。
 #[tauri::command]
 pub async fn run_maintenance(

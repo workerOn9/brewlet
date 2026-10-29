@@ -140,6 +140,8 @@ export interface Settings {
 export type MaintenanceAction =
   | "update"
   | "upgrade_all"
+  | "upgrade_formulae"
+  | "upgrade_casks"
   | "cleanup"
   | "autoremove";
 

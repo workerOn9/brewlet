@@ -39,11 +39,15 @@ function Row({
   row,
   variant,
   selected,
+  picked,
+  onTogglePicked,
   onSelect,
 }: {
   row: PackageRow;
   variant: ListVariant;
   selected: boolean;
+  picked: boolean;
+  onTogglePicked: (() => void) | null;
   onSelect: () => void;
 }) {
   return (
@@ -53,6 +57,8 @@ function Row({
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(e) => {
+        // 焦点在复选框时把 Enter/Space 交给它自己，避免顺带打开详情。
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onSelect();
@@ -66,6 +72,16 @@ function Row({
       )}
     >
       <div className="flex min-w-0 items-center gap-1.5">
+        {onTogglePicked !== null && (
+          <input
+            type="checkbox"
+            checked={picked}
+            onChange={onTogglePicked}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`选择 ${row.name}`}
+            className="size-3.5 shrink-0 accent-neutral-900 dark:accent-neutral-200"
+          />
+        )}
         <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
           {row.displayName}
         </span>
@@ -97,9 +113,14 @@ function Row({
 export function PackageList({
   rows,
   variant,
+  picked,
+  onTogglePicked,
 }: {
   rows: PackageRow[];
   variant: ListVariant;
+  /** 多选升级的勾选集合（仅过时视图传入）。 */
+  picked?: ReadonlySet<string>;
+  onTogglePicked?: (row: PackageRow) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const selected = useUiStore((s) => s.selected);
@@ -179,6 +200,12 @@ export function PackageList({
                 row={row}
                 variant={variant}
                 selected={vi.index === selectedIndex}
+                picked={picked?.has(row.id) ?? false}
+                onTogglePicked={
+                  onTogglePicked === undefined
+                    ? null
+                    : () => onTogglePicked(row)
+                }
                 onSelect={() =>
                   setSelected({ name: row.name, kind: row.kind })
                 }

@@ -9,11 +9,11 @@ Brewlet is a free & open-source graphical management tool for **Homebrew** on ma
 ## Features
 
 - **Catalog browse & search**: filter Formula / Cask by type and status (installed / upgradable / pinned / keg-only / deprecated); virtualized scrolling handles thousands of entries
-- **Package management**: installed list, outdated list, per-package install / upgrade / uninstall with live progress and cancellation
+- **Package management**: installed list, outdated list, per-package install / upgrade / uninstall plus multi-select bulk upgrade, with live progress and cancellation
 - **Dependency graph**: forward + reverse dependency visualization (dagre layout), drill into a node and navigate back, adjustable depth
 - **Global search**: persistent toolbar search (⌘K to focus), lists support ↑↓ / Home / End keyboard navigation
 - **Settings panel**: brew path override, network proxy (single address injected into HTTP / HTTPS / ALL_PROXY), China mirror sources (Tsinghua / USTC / custom)
-- **Maintenance operations**: `brew update` / `upgrade` / `cleanup` / `autoremove`
+- **Maintenance operations**: `brew update` / `upgrade` / `upgrade --formula` / `upgrade --cask` / `cleanup` / `autoremove`
 - **Mirror connectivity test**: test all proxy + mirror sources in one click
 - **UX details**: collapsible three-column layout, native macOS title bar, dark mode, Escape shortcut semantics, operation queue
 
