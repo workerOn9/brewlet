@@ -44,6 +44,18 @@ const MAINTENANCE_ITEMS: {
     icon: PackageMinus,
   },
   {
+    action: "upgrade_formulae",
+    label: "仅升级 Formula",
+    hint: "brew upgrade --formula",
+    icon: PackageMinus,
+  },
+  {
+    action: "upgrade_casks",
+    label: "仅升级 Cask",
+    hint: "brew upgrade --cask",
+    icon: PackageMinus,
+  },
+  {
     action: "cleanup",
     label: "清理缓存",
     hint: "brew cleanup：删除旧版本与下载缓存",

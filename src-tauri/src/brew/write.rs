@@ -117,11 +117,31 @@ pub fn package_args(name: &str, kind: PackageKind, action: &str) -> AppResult<Ve
     Ok(args)
 }
 
+/// 批量升级（前端多选）→ `brew upgrade [--cask] a b c`。
+/// 一次调用只接受同一 kind 的包：brew 不允许在同一条命令里混升级 formula 与 cask，
+/// 前端按 kind 分组后各起一个 op。
+pub fn upgrade_many_args(names: &[String], kind: PackageKind) -> AppResult<Vec<String>> {
+    if names.is_empty() {
+        return Err(AppError::BrewFailed("no packages selected".to_string()));
+    }
+    let mut args: Vec<String> = vec!["upgrade".to_string()];
+    if kind == PackageKind::Cask {
+        args.push("--cask".to_string());
+    }
+    for name in names {
+        validate_package_name(name)?;
+        args.push(name.clone());
+    }
+    Ok(args)
+}
+
 /// 维护操作 → argv。枚举白名单，前端无法传任意参数（AGENTS.md 硬约束 4）。
 pub fn maintenance_args(action: MaintenanceAction) -> Vec<String> {
     match action {
         MaintenanceAction::Update => vec!["update".to_string()],
         MaintenanceAction::UpgradeAll => vec!["upgrade".to_string()],
+        MaintenanceAction::UpgradeFormulae => vec!["upgrade".to_string(), "--formula".to_string()],
+        MaintenanceAction::UpgradeCasks => vec!["upgrade".to_string(), "--cask".to_string()],
         MaintenanceAction::Cleanup => vec!["cleanup".to_string()],
         MaintenanceAction::Autoremove => vec!["autoremove".to_string()],
     }
@@ -322,6 +342,14 @@ mod tests {
             vec!["upgrade"]
         );
         assert_eq!(
+            maintenance_args(MaintenanceAction::UpgradeFormulae),
+            vec!["upgrade", "--formula"]
+        );
+        assert_eq!(
+            maintenance_args(MaintenanceAction::UpgradeCasks),
+            vec!["upgrade", "--cask"]
+        );
+        assert_eq!(
             maintenance_args(MaintenanceAction::Cleanup),
             vec!["cleanup"]
         );
@@ -342,6 +370,21 @@ mod tests {
             vec!["uninstall", "--cask", "iterm2"]
         );
         assert!(package_args("--force", PackageKind::Formula, "install").is_err());
+    }
+
+    #[test]
+    fn upgrade_many_args_validate_and_place_cask_flag() {
+        let names = vec!["wget".to_string(), "curl".to_string()];
+        assert_eq!(
+            upgrade_many_args(&names, PackageKind::Formula).expect("ok"),
+            vec!["upgrade", "wget", "curl"]
+        );
+        assert_eq!(
+            upgrade_many_args(&["iterm2".to_string()], PackageKind::Cask).expect("ok"),
+            vec!["upgrade", "--cask", "iterm2"]
+        );
+        assert!(upgrade_many_args(&[], PackageKind::Formula).is_err());
+        assert!(upgrade_many_args(&["--force".to_string()], PackageKind::Formula).is_err());
     }
 
     #[tokio::test]

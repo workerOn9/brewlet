@@ -276,6 +276,10 @@ pub struct Settings {
 pub enum MaintenanceAction {
     Update,
     UpgradeAll,
+    /// `brew upgrade --formula`：只升级过时的 formula。
+    UpgradeFormulae,
+    /// `brew upgrade --cask`：只升级过时的 cask。
+    UpgradeCasks,
     Cleanup,
     Autoremove,
 }

@@ -26,6 +26,8 @@ const ACTION_META: Record<OpAction, { label: string; icon: LucideIcon }> = {
   upgrade: { label: "升级", icon: ArrowUpCircle },
   update: { label: "更新元数据", icon: RefreshCw },
   upgrade_all: { label: "升级全部", icon: ArrowUpCircle },
+  upgrade_formulae: { label: "升级 Formula", icon: ArrowUpCircle },
+  upgrade_casks: { label: "升级 Cask", icon: ArrowUpCircle },
   cleanup: { label: "清理缓存", icon: Eraser },
   autoremove: { label: "移除孤立依赖", icon: PackageMinus },
 };
